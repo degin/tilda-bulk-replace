@@ -3,49 +3,53 @@ name: tilda-bulk-replace
 description: Use when one fact must change on 5+ Tilda pages via MCP. Pull, generate tasks, dry-run, write, verify.
 ---
 
-# Массовая замена значений на страницах Tilda через MCP
+# Bulk value replacement across Tilda pages via MCP
 
-Заказчик прислал новую версию фактов (размер, площадь, число мест), а старое значение живёт на 15–20 страницах: в Zero-блоках, обычных блоках, списках аккордеона (JSON внутри поля), в `description` страницы и в JSON-LD. Скилл меняет значение везде и доказывает, что остатков нет. Для одной-двух страниц хватит обычного `update_record`.
+(Русская версия: [SKILL.ru.md](SKILL.ru.md))
 
-Скрипты: Python 3, только stdlib. Токен: переменная окружения `TILDA_MCP_TOKEN`. Проект: `--project` или `TILDA_PROJECT_ID`. Скрипты читают и пишут данные мимо контекста модели: Zero-блок весит до 58 000 знаков, и через MCP-инструменты агента он оплачивался бы заново на каждом шаге.
+A client sends a new version of the facts (a dimension, an area, a seat count), and the old value lives on 15–20 pages: in Zero Blocks, regular blocks, accordion lists (JSON inside a field), the page `description` and JSON-LD. This skill replaces the value everywhere and proves that nothing is left behind. For one or two pages a plain `update_record` is enough.
 
-## Порядок
+Scripts: Python 3, stdlib only. Token: environment variable `TILDA_MCP_TOKEN`. Project: `--project` or `TILDA_PROJECT_ID`. The scripts read and write data outside the model context: a Zero Block weighs up to 58,000 characters, and through the agent's MCP tools it would be paid for again on every step.
 
-Пути ниже даны относительно папки скилла; `$W` — рабочая папка проекта, где лежат снимки и задания.
+Note: script docstrings and console messages are in Russian for now; the commands and file formats are language-independent.
 
-1. **Список страниц.** `python scripts/tilda_blocks.py pages --project ID` и составить `pages.json` вида `{"slug": pageid}` (пример: `examples/pages.json`).
-2. **Снимки «до».** `python scripts/tilda_blocks.py pull-all pages.json --project ID --out $W/before`. Скрипт выгружает блоки, настройки страницы и `head.html`; повторный запуск пропускает уже выгруженные страницы. Снимки положить в git: это точка возврата.
-3. **Найти, где живёт значение.** `python scripts/scan.py ctx $W/before "100×60"` печатает страницу, вид блока и контекст. Поиск идёт по развёрнутому тексту, потому что список аккордеона в сыром файле лежит как `\u04xx`, и grep по сырью его пропускает.
-4. **Таблица замен** `replacements.json` (пример: `examples/replacements.json`). Правила:
-   - пары «было → стало» брать длинные, с контекстом («Основное 105×68» → «Основное 102×68»), голые числа не брать: рядом может жить другое поле с тем же числом;
-   - корни слов безопасны там, где склонение сохраняется (`многофункциональн` → `универсальн`);
-   - Tilda хранит неразрывный пробел как `#nbsp;`: для каждой пары проверить вариант с ним;
-   - пара, целиком лежащая внутри другой пары того же поля, отбрасывается автоматически;
-   - то, что верно только в одном блоке, идёт в `specific`.
-5. **Задания.** `python scripts/gen.py $W/before replacements.json pages.json $W/tasks --project ID` создаёт `tasks/<slug>.json` (формат: `examples/task-page_a.json`). Просмотреть, сколько операций на страницу.
-6. **Dry-run на все страницы.** `for f in $W/tasks/*.json; do python scripts/tilda_patch.py $f --backup $W/bak/$(basename $f .json); done`. Скрипт падает, если пара встретилась не `count` раз. Сбой dry-run значит, что значения в Tilda разошлись со снимком: выгрузить заново и пересобрать задания.
-7. **Запись.** Тот же цикл с `--apply`. Перед записью поле сохраняется в `--backup`. Начинать с одной страницы, потом остальные.
-8. **Сверка «после».** Выгрузить те же страницы в `$W/after` (шаг 2) и `python scripts/scan.py check $W/after replacements.json`. Старое не должно найтись, новое должно; каждый `<script type="application/ld+json">` разбирается через `json.loads`. Код возврата 1 означает остатки или битый JSON-LD.
-9. **Публикует владелец сайта.** Запись в Tilda не публикует страницы, скилл публикацию не делает.
+## Workflow
 
-## Операции задания
+Paths are relative to the skill folder; `$W` is the working folder of your project that holds snapshots and tasks.
 
-`field` (обычный блок), `zero` (элемент Zero-блока), `field_json` (ключ одного элемента списка в поле-JSON, `index` с 1), `page_settings`, `head`. Каждая подстрока обязана встретиться ровно `count` раз (по умолчанию 1). Подробности и поля: шапка `scripts/tilda_patch.py`.
+1. **Page list.** `python scripts/tilda_blocks.py pages --project ID`, then write `pages.json` as `{"slug": pageid}` (see `examples/pages.json`).
+2. **"Before" snapshots.** `python scripts/tilda_blocks.py pull-all pages.json --project ID --out $W/before`. It pulls blocks, page settings and `head.html`; a rerun skips pages that are already pulled. Commit the snapshots to git: this is your restore point.
+3. **Find where the value lives.** `python scripts/scan.py ctx $W/before "100×60"` prints the page, block kind and context. The search runs over unfolded text, because an accordion list sits in the raw file as `\u04xx` escapes and grep over raw files misses it.
+4. **Replacement table** `replacements.json` (see `examples/replacements.json`). Rules:
+   - use long "old → new" pairs with context ("Main 105×68" → "Main 102×68"), not bare numbers: another field next to it may hold the same number;
+   - word stems are safe where inflection is kept (`многофункциональн` → `универсальн`);
+   - Tilda stores a non-breaking space as `#nbsp;`: check the `#nbsp;` variant of every pair;
+   - a pair that lies entirely inside another pair of the same field is dropped automatically;
+   - anything true for one block only goes into `specific`.
+5. **Tasks.** `python scripts/gen.py $W/before replacements.json pages.json $W/tasks --project ID` creates `tasks/<slug>.json` (format: `examples/task-page_a.json`). Check how many operations each page got.
+6. **Dry-run on every page.** `for f in $W/tasks/*.json; do python scripts/tilda_patch.py $f --backup $W/bak/$(basename $f .json); done`. The script fails if a pair occurs a number of times other than `count`. A dry-run failure means Tilda has drifted from your snapshot: pull again and regenerate the tasks.
+7. **Write.** The same loop with `--apply`. The field is saved to `--backup` before every write. Start with one page, then the rest.
+8. **"After" check.** Pull the same pages into `$W/after` (step 2) and run `python scripts/scan.py check $W/after replacements.json`. Old values must not be found, new ones must; every `<script type="application/ld+json">` is parsed with `json.loads`. Exit code 1 means leftovers or broken JSON-LD.
+9. **The site owner publishes.** Writing to Tilda does not publish pages, and this skill never publishes.
 
-## Ловушки
+## Task operations
 
-- **Новый вопрос в аккордеоне:** `field_json` правит только существующие элементы. Новый добавляется отдельным вызовом: прочитать поле, дописать элемент с новыми `lid` и `ls`, записать массив как `json.dumps(items, ensure_ascii=True, separators=(',', ':'))`.
-- **Видимый FAQ и JSON-LD держать одинаковыми:** разметка следует за контентом. Новый вопрос в JSON-LD вставляется отдельной правкой `head` с анкором на конец последнего ответа; валидность проверяет `scan.py check`.
-- **`head`:** каждая операция читает head заново и пишет целиком, поэтому по одной паре на операцию и строго последовательно.
-- **Параллельные записи в один блок не делать:** каждая операция читает блок и пишет его целиком, вторая затрёт первую.
-- **Длинный текст в Zero-блок:** сначала проверить `heightmode`. У текста в Auto Layout он `hug` и группа растёт сама; без Auto Layout высоты и кнопки под списком двигаются вручную по всем брейкпоинтам.
-- **Пустой Zero-блок** (`tplid 396` без раскладки) сервер считает обычным блоком: `pull` обрабатывает это сам.
-- **Tilda нормализует HTML при записи Zero-блока:** `<br>` становится `<br />`, `timestamp` из числа в строку, в настройках страницы обновляется `changed`. Пары с `<br>` в `было`/`стало` проверять по виду `<br />` в снимке «после», а при побайтовом сравнении снимков «до» и «после» эти различия считать нормой.
-- **Лимит запросов:** сервер отвечает 429; клиент выдерживает паузу и повторяет запрос, ускорять `--jobs` выше 2–3 не стоит.
-- **Откат:** значения «до» лежат в `--backup` (файлы `before-*`) и в снимках `before/`.
-  - Поле обычного блока или список аккордеона: `python scripts/tilda_blocks.py set PAGE REC FIELD --from-backup $W/bak/<slug>/before-field-REC-FIELD.json --project ID` (для аккордеона файл `before-field_json-REC-FIELD.json`).
-  - Zero-блок, `page_settings` и `head` одной командой не откатываются. Обратите таблицу замен («стало» ↔ «было»), соберите задания `gen.py` по снимку «после» и прогоните их через `tilda_patch.py` тем же порядком (dry-run, потом `--apply`). Проверено на живой Tilda: текст возвращается, различия остаются только в нормализации Tilda (см. ловушку выше).
+`field` (regular block), `zero` (a Zero Block element), `field_json` (a key of one list item inside a JSON field, `index` starts at 1), `page_settings`, `head`. Every substring must occur exactly `count` times (default 1). Details and fields: the header of `scripts/tilda_patch.py`.
 
-## Что проверено
+## Pitfalls
 
-Рецепт обкатан на проекте из 18 страниц: 138 замен (`field`, `zero`, `field_json`, `page_settings`, `head`) и 16 вставок в списки, 0 ошибок записи, повторная выгрузка без остатков. Dry-run и запись всех замен уложились в один вызов до 10 минут.
+- **A new accordion question:** `field_json` edits existing items only. Add a new one in a separate call: read the field, append an item with a new `lid` and `ls`, write the array back as `json.dumps(items, ensure_ascii=True, separators=(',', ':'))`.
+- **Keep the visible FAQ and JSON-LD identical:** markup follows content. A new JSON-LD question is inserted by a separate `head` edit anchored at the end of the last answer; `scan.py check` validates the result.
+- **`head`:** every operation re-reads the head and writes it whole, so use one pair per operation, strictly sequentially.
+- **No parallel writes to one block:** every operation reads the block and writes it whole, so the second write would overwrite the first.
+- **Long text in a Zero Block:** check `heightmode` first. Text in Auto Layout is `hug` and the group grows by itself; without Auto Layout, heights and the button under the list have to be moved by hand on every breakpoint.
+- **Empty Zero Block** (`tplid 396` without a layout) is treated by the server as a regular block: `pull` handles this itself.
+- **Tilda normalizes HTML when a Zero Block is written:** `<br>` becomes `<br />`, `timestamp` turns from a number into a string, and `changed` is updated in page settings. Check pairs that contain `<br>` against the `<br />` form in the "after" snapshot, and treat these differences as normal when comparing "before" and "after" snapshots byte by byte.
+- **Rate limit:** the server answers 429; the client waits and retries. Do not raise `--jobs` above 2–3.
+- **Rollback:** "before" values are in `--backup` (`before-*` files) and in the `before/` snapshots.
+  - A regular block field or an accordion list: `python scripts/tilda_blocks.py set PAGE REC FIELD --from-backup $W/bak/<slug>/before-field-REC-FIELD.json --project ID` (for an accordion the file is `before-field_json-REC-FIELD.json`).
+  - A Zero Block, `page_settings` and `head` cannot be rolled back with one command. Reverse the replacement table (swap "old" and "new"), generate tasks with `gen.py` from the "after" snapshot and run them through `tilda_patch.py` in the same order (dry-run, then `--apply`). Verified on live Tilda: the text comes back, and the only differences left are Tilda's own normalization (see the pitfall above).
+
+## Verified
+
+The recipe was run on a project of 18 pages: 138 replacements (`field`, `zero`, `field_json`, `page_settings`, `head`) and 16 list insertions, 0 write errors, and the repeated pull showed no leftovers. Dry-run and write of all replacements took one call of up to 10 minutes each. The scripts were also tested on a live Tilda test page: write, check, rollback.
