@@ -11,8 +11,6 @@ A client sends a new version of the facts (a dimension, an area, a seat count), 
 
 Scripts: Python 3, stdlib only. Token: environment variable `TILDA_MCP_TOKEN`. Project: `--project` or `TILDA_PROJECT_ID`. The scripts read and write data outside the model context: a Zero Block weighs up to 58,000 characters, and through the agent's MCP tools it would be paid for again on every step.
 
-Note: script docstrings and console messages are in Russian for now; the commands and file formats are language-independent.
-
 ## Workflow
 
 Paths are relative to the skill folder; `$W` is the working folder of your project that holds snapshots and tasks.

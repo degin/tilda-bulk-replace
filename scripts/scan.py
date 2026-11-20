@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Поиск и сверка по выгрузке Tilda: значения развёрнуты в обычный текст. Вер. 1 (20.11.2026)
+"""Search and verify a Tilda pull: values are unfolded into plain text. Ver. 1 (2026-11-20)
 
-Папка выгрузки: DIR/<slug>/rec*.json, page-settings.json, head.html (результат tilda_blocks.py pull-all).
-Офлайн, MCP не трогает.
+Pull folder: DIR/<slug>/rec*.json, page-settings.json, head.html (the result of tilda_blocks.py pull-all).
+Offline, does not touch MCP.
 
-    scan.py ctx DIR REGEX [--context 60]     найти с контекстом (до замены: где живёт значение)
-    scan.py check DIR REPLACEMENTS.json      после замены: остатки старого, наличие нового, валидность JSON-LD
+    scan.py ctx DIR REGEX [--context 60]     find with context (before a replacement: where the value lives)
+    scan.py check DIR REPLACEMENTS.json      after a replacement: leftovers of the old value, presence of the new, JSON-LD validity
 
-Зачем разворачивать: список аккордеона лежит в поле как JSON-строка с \\u04xx, grep по сырому
-файлу такие места пропускает.
+Why unfold: an accordion list sits in a field as a JSON string with \\u04xx escapes, so grep over the raw file
+misses such places.
 """
 from __future__ import annotations
 
@@ -23,17 +23,17 @@ LD_RE = re.compile(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', re.S
 
 
 def walk(root: Path):
-    """Выдаёт (slug, kind, record, locator, text). locator годится как основа операции задания."""
+    """Yield (slug, kind, record, locator, text). The locator is usable as the base of a task operation."""
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
         slug = d.name
         for f in sorted(d.glob("rec*.json")):
             data = json.loads(f.read_text(encoding="utf-8"))
             rec = int(f.stem[3:])
-            if "content" in data and "recordid" in data:  # обычный блок
+            if "content" in data and "recordid" in data:  # regular block
                 for k, v in data["content"].items():
                     if not isinstance(v, str):
                         continue
-                    if v.lstrip().startswith("[{"):  # список аккордеона: JSON внутри поля
+                    if v.lstrip().startswith("[{"):  # accordion list: JSON inside the field
                         try:
                             items = json.loads(v)
                         except json.JSONDecodeError:
@@ -45,7 +45,7 @@ def walk(root: Path):
                                         yield slug, "json", rec, dict(op="field_json", record=rec, field=k, index=i, key=kk), vv
                             continue
                     yield slug, "field", rec, dict(op="field", record=rec, field=k), v
-            else:  # Zero-блок: элементы лежат по ключам верхнего уровня
+            else:  # Zero Block: elements sit under top-level keys
                 for ek, el in data.items():
                     if isinstance(el, dict):
                         for k, v in el.items():
@@ -72,7 +72,7 @@ def cmd_ctx(args) -> int:
             where = loc.get("elem", loc.get("index", ""))
             print(f"{slug} {kind} {rec} {where} | {text[s:m.end() + args.context]!r}")
             n += 1
-    print(f"найдено: {n}")
+    print(f"found: {n}")
     return 0
 
 
@@ -85,7 +85,7 @@ def cmd_check(args) -> int:
     for slug, kind, rec, loc, text in walk(Path(args.dir)):
         for old, new in pairs:
             found_new += text.count(new)
-            if old in text.replace(new, ""):  # старое внутри нового не считаем остатком
+            if old in text.replace(new, ""):  # an old value inside a new one is not a leftover
                 residue.append((slug, kind, rec, loc.get("elem", loc.get("index", "")), old))
         if kind == "head":
             for block in LD_RE.findall(text):
@@ -94,10 +94,10 @@ def cmd_check(args) -> int:
                 except json.JSONDecodeError as exc:
                     bad_ld.append((slug, str(exc)))
     for r in residue:
-        print("ОСТАТОК", *r)
+        print("LEFTOVER", *r)
     for b in bad_ld:
-        print("JSON-LD НЕ РАЗБИРАЕТСЯ", *b)
-    print(f"остатков: {len(residue)}, битых JSON-LD: {len(bad_ld)}, вхождений нового: {found_new}")
+        print("JSON-LD DOES NOT PARSE", *b)
+    print(f"leftovers: {len(residue)}, broken JSON-LD: {len(bad_ld)}, occurrences of the new value: {found_new}")
     return 1 if residue or bad_ld else 0
 
 

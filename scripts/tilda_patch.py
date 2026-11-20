@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Точечные правки страницы Tilda по файлу-заданию. Вер. 1 (20.11.2026)
+"""Targeted edits of a Tilda page from a task file. Ver. 1 (2026-11-20)
 
-Задание (JSON):
+Task (JSON):
     {"projectid": 123, "pageid": 456, "ops": [ ... ]}
 
-Операции:
-  {"op": "field", "record": ID, "tab": "content", "field": "title", "subs": [["старое","новое"]], "count": 1}
-      обычный блок: edit_record -> замена подстрок в поле -> update_record (only_field).
-  {"op": "zero", "record": ID, "elem": "ключ элемента", "field": "text", "subs": [...]}
-      Zero-блок: get_zero_block -> правка поля элемента -> update_zero_block целиком.
+Operations:
+  {"op": "field", "record": ID, "tab": "content", "field": "title", "subs": [["old","new"]], "count": 1}
+      regular block: edit_record -> substring replacement in the field -> update_record (only_field).
+  {"op": "zero", "record": ID, "elem": "element key", "field": "text", "subs": [...]}
+      Zero Block: get_zero_block -> edit a field of one element -> update_zero_block as a whole.
   {"op": "field_json", "record": ID, "field": "list", "index": 6, "key": "li_descr", "subs": [...]}
-      поле-строка с JSON-массивом (список аккордеона): правит ключ одного элемента (index с 1).
+      a string field holding a JSON array (accordion list): edits one key of one item (index starts at 1).
   {"op": "page_settings", "field": "descr", "subs": [...]}
-      настройки страницы (title, descr и др.).
-  {"op": "head", "old": "фрагмент", "new": "замена", "count": 1}
-      page-level head: get_head_code -> замена -> update_page_head_code.
+      page settings (title, descr, etc.).
+  {"op": "head", "old": "fragment", "new": "replacement", "count": 1}
+      page-level head: get_head_code -> replacement -> update_page_head_code.
 
-Каждая подстрока обязана встретиться ровно "count" раз (по умолчанию 1), иначе ошибка и стоп.
-Перед записью исходное значение поля кладётся в --backup.
-Без --apply ничего не пишется (dry-run). Токен: переменная TILDA_MCP_TOKEN.
-Публикации нет: страницы публикует владелец.
+Every substring must occur exactly "count" times (default 1), otherwise the run stops with an error.
+Before writing, the original value is saved into --backup.
+Without --apply nothing is written (dry-run). Token: the TILDA_MCP_TOKEN environment variable.
+This script never publishes: pages are published by the site owner.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def apply_subs(text: str, subs, count: int, label: str) -> str:
     for old, new in subs:
         found = text.count(old)
         if found != count:
-            raise SystemExit(f"[{label}] подстрока встречается {found} раз, ожидалось {count}: {old[:90]!r}")
+            raise SystemExit(f"[{label}] substring occurs {found} times, expected {count}: {old[:90]!r}")
         text = text.replace(old, new)
     return text
 
@@ -48,7 +48,7 @@ def _read_field(op, pageid, projectid, token, label):
     data = call_tool("edit_record", args, token)
     values = data.get("record") if isinstance(data, dict) else None
     if not isinstance(values, dict) or op["field"] not in values:
-        raise SystemExit(f"[{label}] нет поля {op['field']} в блоке {op['record']}")
+        raise SystemExit(f"[{label}] no field {op['field']} in block {op['record']}")
     return args, values[op["field"]]
 
 
@@ -76,23 +76,23 @@ def run_op(op: dict, pageid: int, projectid: int, token: str, apply: bool, backu
         code = call_tool("get_zero_block", args, token)
         elem = code.get(str(op["elem"]))
         if not isinstance(elem, dict):
-            raise SystemExit(f"[{label}] нет элемента {op['elem']} в Zero {op['record']}")
+            raise SystemExit(f"[{label}] no element {op['elem']} in Zero block {op['record']}")
         field = op["field"]
         if field not in elem:
-            raise SystemExit(f"[{label}] нет поля {field} у элемента {op['elem']}")
+            raise SystemExit(f"[{label}] no field {field} in element {op['elem']}")
         original = copy.deepcopy(code)
         elem[field] = apply_subs(elem[field], op["subs"], count, label)
         if apply:
             _write_backup(backup, f"before-zero-{op['record']}.json", original)
             call_tool("update_zero_block", {**args, "code": code}, token)
-        return f"{label}: zero {op['record']} / элемент {op['elem']} | {field} -> {elem[field][:60]!r}"
+        return f"{label}: zero {op['record']} / element {op['elem']} | {field} -> {elem[field][:60]!r}"
 
     if kind == "field_json":
         args, old_raw = _read_field(op, pageid, projectid, token, label)
         items = json.loads(old_raw)
         idx = int(op["index"]) - 1
         if not 0 <= idx < len(items):
-            raise SystemExit(f"[{label}] индекс {op['index']} вне списка (элементов {len(items)})")
+            raise SystemExit(f"[{label}] index {op['index']} is outside the list ({len(items)} items)")
         old = items[idx][op["key"]]
         new = apply_subs(old, op["subs"], count, label)
         items[idx][op["key"]] = new
@@ -109,7 +109,7 @@ def run_op(op: dict, pageid: int, projectid: int, token: str, apply: bool, backu
         root = ps.get("page") if isinstance(ps, dict) and isinstance(ps.get("page"), dict) else ps
         field = op["field"]
         if field not in root:
-            raise SystemExit(f"[{label}] нет поля {field} в настройках страницы")
+            raise SystemExit(f"[{label}] no field {field} in page settings")
         old = root[field]
         new = apply_subs(old, op["subs"], count, label)
         if apply:
@@ -123,22 +123,22 @@ def run_op(op: dict, pageid: int, projectid: int, token: str, apply: bool, backu
         data = call_tool("get_head_code", args, token)
         page = data.get("page") if isinstance(data, dict) else None
         if not isinstance(page, dict) or "headcode" not in page:
-            raise SystemExit(f"[{label}] head страницы не получен: {json.dumps(data, ensure_ascii=False)[:200]}")
+            raise SystemExit(f"[{label}] page head not received: {json.dumps(data, ensure_ascii=False)[:200]}")
         hc = page["headcode"]
         new = apply_subs(hc, [[op["old"], op["new"]]], count, label)
         if apply:
             _write_backup(backup, "before-head-headcode.txt", hc)
             call_tool("update_page_head_code", {**args, "headcode": new}, token)
-        return f"{label}: head {len(hc)}б -> {len(new)}б"
+        return f"{label}: head {len(hc)}b -> {len(new)}b"
 
-    raise SystemExit(f"неизвестная операция: {kind}")
+    raise SystemExit(f"unknown operation: {kind}")
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Правки страницы Tilda по заданию (по умолчанию dry-run)")
-    p.add_argument("task", help="файл-задание JSON")
-    p.add_argument("--apply", action="store_true", help="записать (без флага только показать)")
-    p.add_argument("--backup", default=None, help="папка для снимков «до»")
+    p = argparse.ArgumentParser(description="Edit a Tilda page from a task file (dry-run by default)")
+    p.add_argument("task", help="task JSON file")
+    p.add_argument("--apply", action="store_true", help="write (without the flag only show the changes)")
+    p.add_argument("--backup", default=None, help="folder for the \"before\" snapshots")
     args = p.parse_args(argv)
 
     task = json.loads(Path(args.task).read_text(encoding="utf-8"))
@@ -147,11 +147,11 @@ def main(argv=None) -> int:
     backup.mkdir(parents=True, exist_ok=True)
 
     token = load_token()
-    print(f"{'APPLY' if args.apply else 'DRY-RUN'}: страница {pageid}, проект {projectid}, операций {len(task['ops'])}")
+    print(f"{'APPLY' if args.apply else 'DRY-RUN'}: page {pageid}, project {projectid}, operations {len(task['ops'])}")
     for op in task["ops"]:
         print("  " + run_op(op, pageid, projectid, token, args.apply, backup))
     if not args.apply:
-        print("ничего не записано (нужен --apply)")
+        print("nothing written (use --apply)")
     return 0
 
 

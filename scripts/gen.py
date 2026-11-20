@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Генератор заданий для tilda_patch.py из таблицы замен. Вер. 1 (20.11.2026)
+"""Task generator for tilda_patch.py from a replacement table. Ver. 1 (2026-11-20)
 
     gen.py BEFORE_DIR REPLACEMENTS.json PAGES.json OUT_DIR --project ID
 
-BEFORE_DIR    выгрузка «до» (tilda_blocks.py pull-all)
-REPLACEMENTS  {"pairs": [["было","стало"], ...],
-               "specific": [{"page": "slug", "record": 123, "elem": "1", "pairs": [["было","стало"]]}]}
-              pairs действуют везде, specific только в одном блоке (elem для Zero, можно опустить)
+BEFORE_DIR    the "before" pull (tilda_blocks.py pull-all)
+REPLACEMENTS  {"pairs": [["old","new"], ...],
+               "specific": [{"page": "slug", "record": 123, "elem": "1", "pairs": [["old","new"]]}]}
+              pairs apply everywhere, specific only in one block (elem is for Zero, may be omitted)
 PAGES         {"slug": pageid}
-OUT_DIR       по одному файлу-заданию на страницу: OUT_DIR/<slug>.json
+OUT_DIR       one task file per page: OUT_DIR/<slug>.json
 
-Для каждого поля берутся пары, которые в нём есть. Пара, целиком лежащая внутри другой пары
-того же поля, отбрасывается. Пары группируются по числу вхождений (count).
+For every field, the pairs present in it are taken. A pair that lies entirely inside another pair
+of the same field is dropped. Pairs are grouped by number of occurrences (count).
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def main(argv=None) -> int:
         for o, n in pairs:
             groups.setdefault(text.count(o), []).append([o, n])
         for cnt, subs in groups.items():
-            if kind == "head":  # head читается заново на каждую операцию: по паре на операцию
+            if kind == "head":  # the head is re-read on every operation: one pair per operation
                 for o, n in subs:
                     tasks.setdefault(slug, []).append(dict(op="head", old=o, new=n, count=cnt))
                     total += 1
@@ -69,12 +69,12 @@ def main(argv=None) -> int:
 
     for slug, ops in tasks.items():
         if slug not in page_ids:
-            raise SystemExit(f"страницы {slug} нет в {args.pages}")
+            raise SystemExit(f"page {slug} is not in {args.pages}")
         (out / f"{slug}.json").write_text(
             json.dumps(dict(projectid=args.project, pageid=int(page_ids[slug]), ops=ops),
                        ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"{slug}: операций {len(ops)}")
-    print(f"страниц {len(tasks)}, операций {total}")
+        print(f"{slug}: operations {len(ops)}")
+    print(f"pages {len(tasks)}, operations {total}")
     return 0
 
 

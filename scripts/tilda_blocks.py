@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Выгрузка страниц Tilda через MCP в файлы и точечная запись одного поля. Вер. 1 (20.11.2026)
+"""Pull Tilda pages through MCP into files and write a single field. Ver. 1 (2026-11-20)
 
-Только stdlib. Токен берётся из переменной окружения TILDA_MCP_TOKEN.
-Проект: --project или переменная TILDA_PROJECT_ID.
+stdlib only. The token comes from the TILDA_MCP_TOKEN environment variable.
+Project: --project or the TILDA_PROJECT_ID environment variable.
 
-Команды:
-    pages                      список страниц проекта (--grep фильтр)
-    ls PAGE                    блоки страницы
-    pull PAGE --out DIR        страница в файлы: rec*.json, page-settings.json, head.html, MANIFEST.json
-    pull-all PAGES.json --out DIR   все страницы из {"slug": pageid}, по папке на страницу
-    fields PAGE REC            имена полей блока
-    get PAGE REC FIELD         значение поля
+Commands:
+    pages                      list the project's pages (--grep filter)
+    ls PAGE                    list a page's blocks
+    pull PAGE --out DIR        page to files: rec*.json, page-settings.json, head.html, MANIFEST.json
+    pull-all PAGES.json --out DIR   every page from {"slug": pageid}, one folder per page
+    fields PAGE REC            field names of a block
+    get PAGE REC FIELD         value of a field
     set PAGE REC FIELD (--value | --from-file | --from-backup | --stdin) [--dry-run]
 
-Публикации здесь нет: записанное в Tilda публикует владелец сайта.
+This script never publishes: whatever is written to Tilda is published by the site owner.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from pathlib import Path
 MCP_URL = os.environ.get("TILDA_MCP_URL", "https://tilda.ru/api/mcp/")
 PROTOCOL = "2025-06-18"
 ZERO_TPLID = 396
-MIN_INTERVAL = 0.35  # сервер отвечает 429 при частых запросах
+MIN_INTERVAL = 0.35  # the server answers 429 on frequent requests
 
 _throttle_lock = threading.Lock()
 _last_call = [0.0]
@@ -46,7 +46,7 @@ def _throttle() -> None:
         _last_call[0] = time.time()
 
 
-# ---------------------------------------------------------------- MCP-клиент
+# ---------------------------------------------------------------- MCP client
 
 def _post(payload: dict, token: str) -> dict:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -82,7 +82,7 @@ def _post(payload: dict, token: str) -> dict:
             raise SystemExit(last) from None
     else:
         raise SystemExit(last)
-    if raw.lstrip().startswith(("event:", "data:")):  # ответ SSE-потоком
+    if raw.lstrip().startswith(("event:", "data:")):  # SSE stream response
         for line in raw.splitlines():
             if line.startswith("data:"):
                 raw = line[5:].strip()
@@ -94,7 +94,7 @@ def _post(payload: dict, token: str) -> dict:
 
 
 def call_tool(name: str, args: dict, token: str) -> dict:
-    """Вызвать инструмент Tilda MCP и вернуть распарсенный JSON-ответ."""
+    """Call a Tilda MCP tool and return the parsed JSON reply."""
     rpc = _post({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                  "params": {"name": name, "arguments": args}}, token)
     result = rpc.get("result", {})
@@ -113,11 +113,11 @@ def call_tool(name: str, args: dict, token: str) -> dict:
 def load_token() -> str:
     token = os.environ.get("TILDA_MCP_TOKEN")
     if not token:
-        raise SystemExit("Задайте переменную окружения TILDA_MCP_TOKEN")
+        raise SystemExit("Set the TILDA_MCP_TOKEN environment variable")
     return token
 
 
-# ------------------------------------------------------------------- утилиты
+# ------------------------------------------------------------------- helpers
 
 def short(value, limit: int = 60) -> str:
     if isinstance(value, (dict, list)):
@@ -145,7 +145,7 @@ def block_list(data) -> list:
     return []
 
 
-# ------------------------------------------------------------------ команды
+# ----------------------------------------------------------------- commands
 
 def cmd_pages(args, token: str) -> None:
     data = call_tool("get_pages", {"projectid": args.project}, token)
@@ -159,7 +159,7 @@ def cmd_pages(args, token: str) -> None:
         print(json.dumps(data, ensure_ascii=False)[:1500])
         return
     needle = (args.grep or "").lower()
-    print(f"{'pageid':>12}  {'адрес':<40} заголовок")
+    print(f"{'pageid':>12}  {'url':<40} title")
     shown = 0
     for p in pages:
         if not isinstance(p, dict):
@@ -171,7 +171,7 @@ def cmd_pages(args, token: str) -> None:
             continue
         print(f"{str(pid):>12}  {short(url, 40):<40} {short(title, 60)}")
         shown += 1
-    print(f"всего страниц в проекте: {len(pages)}, показано: {shown}")
+    print(f"pages in project: {len(pages)}, shown: {shown}")
 
 
 def cmd_ls(args, token: str) -> None:
@@ -180,8 +180,8 @@ def cmd_ls(args, token: str) -> None:
     if not records:
         print(json.dumps(data, ensure_ascii=False)[:1500])
         return
-    print(f"страница {args.page}, блоков {len(records)}")
-    print(f"{'#':>3}  {'recordid':>12}  {'tplid':>5}  заголовок")
+    print(f"page {args.page}, blocks {len(records)}")
+    print(f"{'#':>3}  {'recordid':>12}  {'tplid':>5}  title")
     for i, rec in enumerate(records, 1):
         rid = rec.get("recordid") or rec.get("id")
         tpl = rec.get("tplid") or rec.get("type")
@@ -194,7 +194,7 @@ def pull_page(project: int, page: int, out: Path, token: str, jobs: int = 2) -> 
     pa = {"projectid": project, "pageid": page}
     items = block_list(call_tool("get_page_records", pa, token))
     if not items:
-        raise SystemExit(f"страница {page}: пустой список блоков")
+        raise SystemExit(f"page {page}: empty block list")
 
     manifest = {"projectid": project, "pageid": page,
                 "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -212,7 +212,7 @@ def pull_page(project: int, page: int, out: Path, token: str, jobs: int = 2) -> 
             try:
                 data = call_tool("get_zero_block", {**pa, "recordid": rid}, token)
             except SystemExit as exc:
-                # пустой Zero без раскладки сервер считает не-Zero: читаем как обычный блок
+                # an empty Zero block without a layout is treated as a non-Zero block: read it as a regular one
                 if "ZeroBlock" not in str(exc):
                     raise
             else:
@@ -233,11 +233,11 @@ def pull_page(project: int, page: int, out: Path, token: str, jobs: int = 2) -> 
             manifest["records"][str(rid)] = meta
     save_json(out / "MANIFEST.json", manifest)
     total = sum(m["bytes"] for m in manifest["records"].values())
-    return f"{out}: блоков {len(items)}, {total / 1024:.0f} КБ, head {len(hc)} б"
+    return f"{out}: blocks {len(items)}, {total / 1024:.0f} KB, head {len(hc)} bytes"
 
 
 def cmd_pull(args, token: str) -> None:
-    print("выгружено в " + pull_page(args.project, args.page, Path(args.out).resolve(), token, args.jobs))
+    print("pulled to " + pull_page(args.project, args.page, Path(args.out).resolve(), token, args.jobs))
 
 
 def cmd_pull_all(args, token: str) -> None:
@@ -245,8 +245,8 @@ def cmd_pull_all(args, token: str) -> None:
     root = Path(args.out).resolve()
     for slug, pid in pages.items():
         folder = root / slug
-        if (folder / "MANIFEST.json").exists():  # уже выгружена: повторный запуск продолжает
-            print(f"{slug}: уже есть, пропуск")
+        if (folder / "MANIFEST.json").exists():  # already pulled: a rerun resumes
+            print(f"{slug}: already pulled, skipped")
             continue
         print(f"{slug}: {pull_page(args.project, int(pid), folder, token, args.jobs)}", flush=True)
 
@@ -263,18 +263,18 @@ def read_tab(args, token: str) -> tuple[dict, dict]:
 def cmd_fields(args, token: str) -> None:
     values, schema = read_tab(args, token)
     names = list(schema) or list(values)
-    print(f"блок {args.record}, вкладка {args.tab}, полей {len(names)}")
+    print(f"block {args.record}, tab {args.tab}, fields {len(names)}")
     for name in names:
         raw = values.get(name, "")
         text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
         print(f"  {name:<18} {str((schema.get(name) or {}).get('type', '')):<10} "
-              f"{len(text):>6}б  {short(text, 50)}")
+              f"{len(text):>6}b  {short(text, 50)}")
 
 
 def cmd_get(args, token: str) -> None:
     values, schema = read_tab(args, token)
     if args.field not in values:
-        print(f"нет поля {args.field}; доступные: {', '.join(list(values) or list(schema))}",
+        print(f"no field {args.field}; available: {', '.join(list(values) or list(schema))}",
               file=sys.stderr)
         raise SystemExit(2)
     value = values[args.field]
@@ -282,10 +282,10 @@ def cmd_get(args, token: str) -> None:
 
 
 def cmd_set(args, token: str) -> None:
-    if args.from_backup:  # файл «before-…json» от tilda_patch.py: {"поле": значение}
+    if args.from_backup:  # a before-*.json file from tilda_patch.py: {"field": value}
         backup = json.loads(Path(args.from_backup).read_text(encoding="utf-8"))
         if args.field not in backup:
-            raise SystemExit(f"в {args.from_backup} нет поля {args.field}: {', '.join(backup)}")
+            raise SystemExit(f"no field {args.field} in {args.from_backup}: {', '.join(backup)}")
         value = backup[args.field]
     elif args.from_file:
         value = Path(args.from_file).read_text(encoding="utf-8")
@@ -294,7 +294,7 @@ def cmd_set(args, token: str) -> None:
     elif args.value is not None:
         value = args.value
     else:
-        raise SystemExit("нужно --value, --from-file, --from-backup или --stdin")
+        raise SystemExit("one of --value, --from-file, --from-backup or --stdin is required")
     payload = {**page_args(args), "recordid": args.record, "tab": args.tab,
                "fields": {args.field: value}, "only_field": args.field}
     if args.dry_run:
@@ -302,7 +302,7 @@ def cmd_set(args, token: str) -> None:
                                      ensure_ascii=False))
         return
     result = call_tool("update_record", payload, token)
-    print(f"записано {args.field} в блок {args.record}: "
+    print(f"written {args.field} to block {args.record}: "
           f"{result.get('_text') or json.dumps(result, ensure_ascii=False)[:200]}")
 
 
@@ -312,34 +312,34 @@ def main(argv=None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     env_project = os.environ.get("TILDA_PROJECT_ID")
     common.add_argument("--project", type=int, default=int(env_project) if env_project else None,
-                        help="id проекта Tilda (или переменная TILDA_PROJECT_ID)")
+                        help="Tilda project id (or the TILDA_PROJECT_ID environment variable)")
 
-    p = argparse.ArgumentParser(description="Блоки Tilda через MCP: выгрузка в файлы и запись поля")
+    p = argparse.ArgumentParser(description="Tilda blocks through MCP: pull to files and write a single field")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("pages", parents=[common], help="список страниц проекта")
-    s.add_argument("--grep")
+    s = sub.add_parser("pages", parents=[common], help="list the project's pages")
+    s.add_argument("--grep", help="filter by url or title")
     s.set_defaults(func=cmd_pages)
 
-    s = sub.add_parser("ls", parents=[common], help="список блоков страницы")
+    s = sub.add_parser("ls", parents=[common], help="list a page's blocks")
     s.add_argument("page", type=int)
     s.set_defaults(func=cmd_ls)
 
-    s = sub.add_parser("pull", parents=[common], help="выгрузить страницу в файлы")
+    s = sub.add_parser("pull", parents=[common], help="pull a page to files")
     s.add_argument("page", type=int)
     s.add_argument("--out", required=True)
     s.add_argument("--jobs", type=int, default=2)
     s.set_defaults(func=cmd_pull)
 
-    s = sub.add_parser("pull-all", parents=[common], help="выгрузить все страницы из pages.json")
+    s = sub.add_parser("pull-all", parents=[common], help="pull every page listed in pages.json")
     s.add_argument("pages", help='JSON {"slug": pageid}')
     s.add_argument("--out", required=True)
     s.add_argument("--jobs", type=int, default=2)
     s.set_defaults(func=cmd_pull_all)
 
-    for name, fn, hlp in (("fields", cmd_fields, "имена полей блока"),
-                          ("get", cmd_get, "значение одного поля"),
-                          ("set", cmd_set, "записать одно поле блока")):
+    for name, fn, hlp in (("fields", cmd_fields, "field names of a block"),
+                          ("get", cmd_get, "value of a single field"),
+                          ("set", cmd_set, "write a single block field")):
         s = sub.add_parser(name, parents=[common], help=hlp)
         s.add_argument("page", type=int)
         s.add_argument("record", type=int)
@@ -349,14 +349,14 @@ def main(argv=None) -> int:
         if name == "set":
             s.add_argument("--value")
             s.add_argument("--from-file")
-            s.add_argument("--from-backup", help="снимок before-…json от tilda_patch.py (откат поля)")
+            s.add_argument("--from-backup", help="a before-*.json snapshot from tilda_patch.py (field rollback)")
             s.add_argument("--stdin", action="store_true")
             s.add_argument("--dry-run", action="store_true")
         s.set_defaults(func=fn)
 
     args = p.parse_args(argv)
     if args.project is None:
-        raise SystemExit("Укажите --project или переменную TILDA_PROJECT_ID")
+        raise SystemExit("Specify --project or the TILDA_PROJECT_ID environment variable")
     args.func(args, load_token())
     return 0
 

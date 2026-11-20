@@ -11,7 +11,7 @@ Copy the folder into your agent's skills directory (or clone the repository ther
 ## Contents
 
 - `SKILL.md` — workflow and pitfalls (English); `SKILL.ru.md` — the same in Russian.
-- `scripts/` — `tilda_blocks.py`, `tilda_patch.py`, `gen.py`, `scan.py` (docstrings and console messages are in Russian).
+- `scripts/` — `tilda_blocks.py`, `tilda_patch.py`, `gen.py`, `scan.py`.
 - `examples/` — replacement table, page list, a sample task.
 
 The scripts never publish: writing to Tilda does not publish pages, the site owner does.
